@@ -41,8 +41,11 @@ require_command tar
 docker info >/dev/null 2>&1 || die "Docker daemon is not reachable"
 
 directory_has_entries() {
-  local directory="$1"
-  [[ -d "$directory" && -n "$(find "$directory" -mindepth 1 -maxdepth 1 -print -quit)" ]]
+  local directory="$1" entry
+  [[ -d "$directory" ]] || return 1
+  [[ -r "$directory" && -x "$directory" ]] || return 0
+  entry="$(find "$directory" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" || return 0
+  [[ -n "$entry" ]]
 }
 
 project_has_compose_resources() {
@@ -129,11 +132,8 @@ compose exec -T postgres pg_isready -U "$db_user" -d "$db_name" >/dev/null 2>&1 
 compose stop sub2api redis >/dev/null 2>&1 || true
 snapshot="$ROOT_DIR/.state/pre-restore-$(date -u +%Y%m%dT%H%M%SZ)"
 mkdir -p "$snapshot"
-for dir in app redis; do
-  [[ -d "$ROOT_DIR/runtime/$dir" ]] && mv "$ROOT_DIR/runtime/$dir" "$snapshot/$dir"
-done
-mkdir -p "$ROOT_DIR/runtime/app" "$ROOT_DIR/runtime/redis"
-[[ -f "$work/runtime-files.tar.gz" ]] && tar -xzf "$work/runtime-files.tar.gz" -C "$ROOT_DIR"
+snapshot_runtime_files "$snapshot"
+[[ -f "$work/runtime-files.tar.gz" ]] && restore_runtime_files "$work/runtime-files.tar.gz"
 
 info "Replacing PostgreSQL database"
 compose exec -T postgres psql -v ON_ERROR_STOP=1 -U "$db_user" -d postgres \

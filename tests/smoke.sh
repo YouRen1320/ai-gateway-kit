@@ -15,6 +15,22 @@ docker info >/dev/null 2>&1 || { echo "Docker daemon is not reachable" >&2; exit
 SOURCE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TEMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/ai-gateway-smoke.XXXXXX")"
 RECOVERY_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/ai-gateway-recovery.XXXXXX")"
+CLEANUP_IMAGE="$(awk -F= '$1 == "REDIS_IMAGE" { print $2 }' "$SOURCE_ROOT/.env.example")"
+
+make_tree_removable() {
+  local directory="$1"
+  [[ -d "$directory" ]] || return 0
+  if docker image inspect "$CLEANUP_IMAGE" >/dev/null 2>&1; then
+    docker run --rm \
+      --network none \
+      --user 0:0 \
+      --entrypoint chmod \
+      --volume "$directory:/cleanup" \
+      "$CLEANUP_IMAGE" \
+      -R a+rwX /cleanup >/dev/null 2>&1 || true
+  fi
+  chmod -R u+rwX "$directory" >/dev/null 2>&1 || true
+}
 
 cleanup() {
   if [[ -f "$TEMP_ROOT/.env" ]]; then
@@ -23,6 +39,8 @@ cleanup() {
   if [[ -f "$RECOVERY_ROOT/.env" ]]; then
     docker compose --project-directory "$RECOVERY_ROOT" --env-file "$RECOVERY_ROOT/.env" -f "$RECOVERY_ROOT/compose.yaml" -f "$RECOVERY_ROOT/compose.proxy.yaml" down -v --remove-orphans >/dev/null 2>&1 || true
   fi
+  make_tree_removable "$TEMP_ROOT"
+  make_tree_removable "$RECOVERY_ROOT"
   rm -rf "$TEMP_ROOT" "$RECOVERY_ROOT"
 }
 trap cleanup EXIT
