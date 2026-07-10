@@ -1,0 +1,35 @@
+# Local configuration and generated secrets
+.env
+.env.*
+!.env.example
+
+# Runtime state must never enter source control
+runtime/
+backups/
+.state/
+data/
+logs/
+
+# Certificates, private keys, database dumps and archives
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+*.dump
+*.sql
+*.sqlite*
+*.rdb
+*.aof
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+
+# Editor and operating-system files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.tmp
+*.log

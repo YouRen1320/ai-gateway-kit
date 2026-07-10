@@ -1,0 +1,9 @@
+vulnerabilities:
+  - id: CVE-2025-68121
+    paths:
+      - usr/local/bin/gosu
+    expired_at: 2026-10-10
+    statement: >-
+      The PostgreSQL image uses gosu only for local UID switching; the affected
+      crypto/tls session-resumption path is not invoked. Remove this exception
+      as soon as the official image rebuilds gosu with a fixed Go toolchain.

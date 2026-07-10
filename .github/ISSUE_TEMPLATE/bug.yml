@@ -1,0 +1,50 @@
+name: Bug report
+description: Report a reproducible problem using synthetic data
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not include credentials, .env, customer data, prompts, or raw production logs.
+  - type: input
+    id: version
+    attributes:
+      label: Kit version
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, architecture, Docker/Compose versions, and image tags/digests.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Synthetic reproduction
+      description: Minimal commands and sanitized configuration required to reproduce the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety checklist
+      options:
+        - label: I ran ./bin/doctor and ./tests/validate.sh.
+          required: true
+        - label: I removed all secrets, personal data, prompts, outputs, and private infrastructure details.
+          required: true

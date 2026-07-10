@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+# shellcheck source=bin/lib.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
+
+with_secrets=false
+if [[ "${1:-}" == "--with-secrets" ]]; then
+  with_secrets=true
+  shift
+fi
+(($# == 0)) || die "Usage: ./bin/backup [--with-secrets]"
+
+require_command docker
+require_command tar
+require_env_file
+docker info >/dev/null 2>&1 || die "Docker daemon is not reachable"
+
+db_user="$(env_value POSTGRES_USER)"
+db_name="$(env_value POSTGRES_DB)"
+validate_identifier "$db_user"
+validate_identifier "$db_name"
+
+[[ -n "$(compose ps -q postgres 2>/dev/null)" ]] || die "PostgreSQL is not running"
+[[ -n "$(compose ps -q redis 2>/dev/null)" ]] || die "Redis is not running"
+
+stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+archive="$ROOT_DIR/backups/ai-gateway-${stamp}.tar.gz"
+work="$(mktemp -d "$ROOT_DIR/backups/.backup.XXXXXX")"
+trap 'rm -rf "$work"' EXIT
+chmod 700 "$work"
+
+info "Creating PostgreSQL logical backup"
+compose exec -T postgres pg_dump \
+  -U "$db_user" \
+  -d "$db_name" \
+  --format=custom \
+  --no-owner > "$work/database.dump"
+
+info "Forcing Redis to persist its current state"
+compose exec -T redis redis-cli SAVE >/dev/null
+
+info "Archiving application and Redis runtime files"
+tar -C "$ROOT_DIR" \
+  --exclude='runtime/app/logs' \
+  -czf "$work/runtime-files.tar.gz" \
+  runtime/app runtime/redis
+
+{
+  printf 'created_utc=%s\n' "$stamp"
+  printf 'project=%s\n' "$(env_value COMPOSE_PROJECT_NAME)"
+  printf 'sub2api_image=%s\n' "$(env_value SUB2API_IMAGE)"
+  printf 'postgres_image=%s\n' "$(env_value POSTGRES_IMAGE)"
+  printf 'redis_image=%s\n' "$(env_value REDIS_IMAGE)"
+} > "$work/metadata.txt"
+
+if $with_secrets; then
+  install -m 600 "$ENV_FILE" "$work/config.env"
+  warn "This backup contains secrets; encrypt it before storing it offsite."
+fi
+
+(
+  cd "$work"
+  : > MANIFEST.sha256
+  for file in database.dump runtime-files.tar.gz metadata.txt config.env; do
+    [[ -f "$file" ]] || continue
+    sha256_file "$file" >> MANIFEST.sha256
+  done
+)
+
+tar -C "$work" -czf "$archive" .
+chmod 600 "$archive"
+warn "Every backup contains sensitive application and customer data; encrypt it before offsite storage."
+ok "Backup created: $archive"

@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+# shellcheck source=bin/lib.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
+
+domain="api.example.com"
+admin_email="admin@example.com"
+timezone="UTC"
+project_name="ai-gateway"
+
+usage() {
+  cat <<'EOF'
+Usage: ./bin/setup [options]
+
+Options:
+  --domain DOMAIN        Public API domain used by the optional TLS proxy
+  --admin-email EMAIL    Initial administrator and ACME contact email
+  --timezone TZ          IANA timezone, for example Asia/Shanghai (default: UTC)
+  --project-name NAME    Docker Compose project name (default: ai-gateway)
+  -h, --help             Show this help
+
+The command refuses to overwrite an existing .env so existing data cannot be
+silently disconnected from its encryption and database credentials.
+EOF
+}
+
+while (($#)); do
+  case "$1" in
+    --domain) domain="${2:?Missing value for --domain}"; shift 2 ;;
+    --admin-email) admin_email="${2:?Missing value for --admin-email}"; shift 2 ;;
+    --timezone) timezone="${2:?Missing value for --timezone}"; shift 2 ;;
+    --project-name) project_name="${2:?Missing value for --project-name}"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) die "Unknown option: $1" ;;
+  esac
+done
+
+[[ "$domain" =~ ^[A-Za-z0-9.-]+$ ]] || die "Invalid domain: $domain"
+[[ "$admin_email" =~ ^[^[:space:]@]+@[^[:space:]@]+$ ]] || die "Invalid email: $admin_email"
+[[ "$timezone" =~ ^[A-Za-z0-9_+./-]+$ ]] || die "Invalid timezone: $timezone"
+[[ "$project_name" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || die "Invalid project name: $project_name"
+[[ ! -e "$ENV_FILE" ]] || die "$ENV_FILE already exists; setup will not overwrite secrets."
+
+require_command openssl
+[[ -f "$ROOT_DIR/.env.example" ]] || die "Missing .env.example"
+
+install -m 600 "$ROOT_DIR/.env.example" "$ENV_FILE"
+trap 'rm -f "$ENV_FILE"' ERR
+
+replace_env_value COMPOSE_PROJECT_NAME "$project_name"
+replace_env_value GATEWAY_DOMAIN "$domain"
+replace_env_value ACME_EMAIL "$admin_email"
+replace_env_value ADMIN_EMAIL "$admin_email"
+replace_env_value TZ "$timezone"
+replace_env_value POSTGRES_PASSWORD "$(openssl rand -hex 32)"
+replace_env_value REDIS_PASSWORD "$(openssl rand -hex 32)"
+replace_env_value ADMIN_PASSWORD "$(openssl rand -hex 24)"
+replace_env_value JWT_SECRET "$(openssl rand -hex 32)"
+replace_env_value TOTP_ENCRYPTION_KEY "$(openssl rand -hex 32)"
+
+install -d -m 700 \
+  "$ROOT_DIR/runtime/app" \
+  "$ROOT_DIR/runtime/postgres" \
+  "$ROOT_DIR/runtime/redis" \
+  "$ROOT_DIR/backups" \
+  "$ROOT_DIR/.state"
+
+if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+  compose config --quiet
+  ok "Docker Compose configuration is valid"
+else
+  warn "Docker Compose is not available yet; run ./bin/doctor after installing it."
+fi
+
+trap - ERR
+ok "Created a secure local configuration at $ENV_FILE"
+info "Secrets were written only to .env and were not printed."
+info "Next: review .env, run ./bin/doctor, then start with 'make up'."
+if [[ "$domain" == "api.example.com" || "$admin_email" == "admin@example.com" ]]; then
+  warn "Example domain/email are still configured; change them before enabling the TLS proxy."
+fi

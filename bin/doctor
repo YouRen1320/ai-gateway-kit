@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+# shellcheck source=bin/lib.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
+
+failures=0
+warnings=0
+
+pass() { ok "$*"; }
+fail() { printf '[FAIL] %s\n' "$*" >&2; failures=$((failures + 1)); }
+notice() { warn "$*"; warnings=$((warnings + 1)); }
+
+require_env_file
+
+for cmd in docker openssl curl tar awk; do
+  if command -v "$cmd" >/dev/null 2>&1; then
+    pass "Command available: $cmd"
+  else
+    fail "Missing command: $cmd"
+  fi
+done
+
+if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+  pass "Docker Compose v2 is available"
+else
+  fail "Docker Compose v2 is not available"
+fi
+
+for key in POSTGRES_PASSWORD REDIS_PASSWORD ADMIN_PASSWORD JWT_SECRET TOTP_ENCRYPTION_KEY; do
+  value="$(env_value "$key")"
+  if [[ -z "$value" || "$value" == REPLACE_BY_SETUP ]]; then
+    fail "$key is not initialized"
+  elif ((${#value} < 32)); then
+    fail "$key is unexpectedly short"
+  else
+    pass "$key is initialized"
+  fi
+done
+
+for key in SUB2API_IMAGE POSTGRES_IMAGE REDIS_IMAGE CADDY_IMAGE; do
+  value="$(env_value "$key")"
+  if [[ "$value" =~ @sha256:[0-9a-f]{64}$ ]]; then
+    pass "$key is pinned by digest"
+  else
+    fail "$key is not pinned by digest"
+  fi
+done
+
+bind_host="$(env_value BIND_HOST)"
+if [[ "$bind_host" == "127.0.0.1" || "$bind_host" == "::1" || "$bind_host" == "localhost" ]]; then
+  pass "Application port is bound to loopback"
+else
+  fail "BIND_HOST=$bind_host exposes the application outside loopback"
+fi
+
+if [[ "$(env_value SECURITY_URL_ALLOWLIST_ENABLED)" == "true" ]]; then
+  pass "SECURITY_URL_ALLOWLIST_ENABLED enforces hostname and SSRF checks"
+else
+  fail "SECURITY_URL_ALLOWLIST_ENABLED must be true in production"
+fi
+
+if [[ -n "$(env_value SECURITY_URL_ALLOWLIST_UPSTREAM_HOSTS)" ]]; then
+  pass "SECURITY_URL_ALLOWLIST_UPSTREAM_HOSTS is configured"
+else
+  fail "SECURITY_URL_ALLOWLIST_UPSTREAM_HOSTS must contain reviewed provider hosts"
+fi
+
+for key in SECURITY_URL_ALLOWLIST_ALLOW_INSECURE_HTTP SECURITY_URL_ALLOWLIST_ALLOW_PRIVATE_HOSTS; do
+  if [[ "$(env_value "$key")" == "false" ]]; then
+    pass "$key is fail-closed"
+  else
+    fail "$key must be false in production"
+  fi
+done
+
+permissions=""
+if stat -c '%a' "$ENV_FILE" >/dev/null 2>&1; then
+  permissions="$(stat -c '%a' "$ENV_FILE")"
+elif stat -f '%Lp' "$ENV_FILE" >/dev/null 2>&1; then
+  permissions="$(stat -f '%Lp' "$ENV_FILE")"
+fi
+if [[ "$permissions" == "600" ]]; then
+  pass ".env permissions are 600"
+else
+  fail ".env permissions should be 600, found: ${permissions:-unknown}"
+fi
+
+for dir in runtime/app runtime/postgres runtime/redis backups .state; do
+  if [[ -d "$ROOT_DIR/$dir" ]]; then
+    pass "Directory exists: $dir"
+  else
+    fail "Missing directory: $dir"
+  fi
+done
+
+if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+  if compose config --quiet; then
+    pass "Base Compose configuration is valid"
+  else
+    fail "Base Compose configuration is invalid"
+  fi
+  if compose_with_proxy config --quiet; then
+    pass "Proxy Compose configuration is valid"
+  else
+    fail "Proxy Compose configuration is invalid"
+  fi
+
+  if docker info >/dev/null 2>&1; then
+    pass "Docker daemon is reachable"
+    if [[ -n "$(compose ps -q sub2api 2>/dev/null)" ]]; then
+      wait_for_http_health 15 || fail "Running gateway failed its health check"
+    else
+      notice "Stack is not running; runtime health was not checked"
+    fi
+  else
+    notice "Docker daemon is not running; static checks only"
+  fi
+fi
+
+if command -v git >/dev/null 2>&1 && git -C "$ROOT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  if git -C "$ROOT_DIR" check-ignore -q .env; then
+    pass ".env is ignored by Git"
+  else
+    fail ".env is not ignored by Git"
+  fi
+fi
+
+printf '\nDoctor summary: %d failure(s), %d warning(s)\n' "$failures" "$warnings"
+((failures == 0))

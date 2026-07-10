@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+# shellcheck source=bin/lib.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
+
+archive=""
+confirmed=false
+restore_secrets=false
+skip_prebackup=false
+
+usage() {
+  cat <<'EOF'
+Usage: ./bin/restore --from ARCHIVE --confirm-destroy-existing [options]
+
+Options:
+  --restore-secrets   Restore config.env from the archive as .env
+  --skip-prebackup    Do not create a safety backup before restoring
+
+Restoring replaces the application files, Redis state and PostgreSQL database.
+EOF
+}
+
+while (($#)); do
+  case "$1" in
+    --from) archive="${2:?Missing archive path}"; shift 2 ;;
+    --confirm-destroy-existing) confirmed=true; shift ;;
+    --restore-secrets) restore_secrets=true; shift ;;
+    --skip-prebackup) skip_prebackup=true; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) die "Unknown option: $1" ;;
+  esac
+done
+
+[[ -n "$archive" && -f "$archive" ]] || die "A valid --from archive is required"
+$confirmed || die "Refusing destructive restore without --confirm-destroy-existing"
+
+require_command docker
+require_command find
+require_command tar
+docker info >/dev/null 2>&1 || die "Docker daemon is not reachable"
+
+directory_has_entries() {
+  local directory="$1"
+  [[ -d "$directory" && -n "$(find "$directory" -mindepth 1 -maxdepth 1 -print -quit)" ]]
+}
+
+project_has_compose_resources() {
+  local project="$1"
+  [[ -n "$project" ]] || return 1
+  [[ -n "$(docker ps -aq --filter "label=com.docker.compose.project=$project")" ]] ||
+    [[ -n "$(docker volume ls -q --filter "label=com.docker.compose.project=$project")" ]]
+}
+
+work="$(mktemp -d "${TMPDIR:-/tmp}/ai-gateway-restore.XXXXXX")"
+trap 'rm -rf "$work"' EXIT
+validate_tar_safety "$archive" || die "Backup archive contains unsafe paths or links"
+
+while IFS= read -r member; do
+  member="${member#./}"
+  case "$member" in
+    ""|MANIFEST.sha256|database.dump|runtime-files.tar.gz|metadata.txt|config.env) ;;
+    *) die "Unexpected file in backup archive: $member" ;;
+  esac
+done < <(tar -tzf "$archive")
+
+tar -xzf "$archive" -C "$work"
+[[ -f "$work/MANIFEST.sha256" && ! -L "$work/MANIFEST.sha256" ]] || die "Backup manifest is missing or unsafe"
+
+while IFS= read -r manifest_file; do
+  case "$manifest_file" in
+    database.dump|runtime-files.tar.gz|metadata.txt|config.env) ;;
+    *) die "Unexpected file referenced by backup manifest: $manifest_file" ;;
+  esac
+done < <(awk '{ print $2 }' "$work/MANIFEST.sha256")
+
+verify_sha256_manifest "$work/MANIFEST.sha256"
+[[ -f "$work/database.dump" && ! -L "$work/database.dump" ]] || die "Database dump is missing or unsafe"
+
+if [[ -f "$work/runtime-files.tar.gz" ]]; then
+  validate_tar_safety "$work/runtime-files.tar.gz" || die "Runtime archive contains unsafe paths or links"
+  while IFS= read -r member; do
+    member="${member#./}"
+    case "$member" in
+      runtime|runtime/|runtime/app|runtime/app/|runtime/app/*|runtime/redis|runtime/redis/|runtime/redis/*) ;;
+      *) die "Unexpected path in runtime archive: $member" ;;
+    esac
+  done < <(tar -tzf "$work/runtime-files.tar.gz")
+fi
+
+if $restore_secrets; then
+  [[ -f "$work/config.env" && ! -L "$work/config.env" ]] || die "Archive does not contain a safe config.env"
+
+  # Infrastructure passwords initialize PostgreSQL/Redis state. Replacing them on an
+  # existing stack would disconnect the restored .env from those persisted services.
+  for directory in "$ROOT_DIR/runtime/app" "$ROOT_DIR/runtime/postgres" "$ROOT_DIR/runtime/redis"; do
+    directory_has_entries "$directory" && die "--restore-secrets requires an empty disaster-recovery destination: $directory is not empty"
+  done
+
+  current_project=""
+  [[ -f "$ENV_FILE" ]] && current_project="$(env_value_from "$ENV_FILE" COMPOSE_PROJECT_NAME)"
+  archive_project="$(env_value_from "$work/config.env" COMPOSE_PROJECT_NAME)"
+  for project in "$current_project" "$archive_project"; do
+    project_has_compose_resources "$project" && die "--restore-secrets requires a clean destination: Docker resources exist for project $project"
+  done
+
+  install -m 600 "$work/config.env" "$ENV_FILE"
+fi
+require_env_file
+
+if ! $skip_prebackup && [[ -n "$(compose ps -q postgres 2>/dev/null)" ]]; then
+  info "Creating pre-restore safety backup"
+  "$ROOT_DIR/bin/backup" --with-secrets
+fi
+
+db_user="$(env_value POSTGRES_USER)"
+db_name="$(env_value POSTGRES_DB)"
+validate_identifier "$db_user"
+validate_identifier "$db_name"
+
+compose up -d postgres redis
+info "Waiting for PostgreSQL"
+for _ in {1..40}; do
+  compose exec -T postgres pg_isready -U "$db_user" -d "$db_name" >/dev/null 2>&1 && break
+  sleep 2
+done
+compose exec -T postgres pg_isready -U "$db_user" -d "$db_name" >/dev/null 2>&1 || die "PostgreSQL did not become ready"
+
+compose stop sub2api redis >/dev/null 2>&1 || true
+snapshot="$ROOT_DIR/.state/pre-restore-$(date -u +%Y%m%dT%H%M%SZ)"
+mkdir -p "$snapshot"
+for dir in app redis; do
+  [[ -d "$ROOT_DIR/runtime/$dir" ]] && mv "$ROOT_DIR/runtime/$dir" "$snapshot/$dir"
+done
+mkdir -p "$ROOT_DIR/runtime/app" "$ROOT_DIR/runtime/redis"
+[[ -f "$work/runtime-files.tar.gz" ]] && tar -xzf "$work/runtime-files.tar.gz" -C "$ROOT_DIR"
+
+info "Replacing PostgreSQL database"
+compose exec -T postgres psql -v ON_ERROR_STOP=1 -U "$db_user" -d postgres \
+  -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${db_name}' AND pid <> pg_backend_pid();" >/dev/null
+compose exec -T postgres dropdb -U "$db_user" --if-exists "$db_name"
+compose exec -T postgres createdb -U "$db_user" -O "$db_user" "$db_name"
+compose exec -T postgres pg_restore -U "$db_user" -d "$db_name" --no-owner --exit-on-error < "$work/database.dump"
+
+compose up -d redis sub2api
+wait_for_http_health 180 || die "Restore completed, but the gateway is unhealthy. Runtime snapshot: $snapshot"
+ok "Restore completed. Previous runtime files are preserved at: $snapshot"

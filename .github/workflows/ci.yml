@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Install static analysis tools
+        run: sudo apt-get update && sudo apt-get install -y ripgrep shellcheck
+
+      - name: Run ShellCheck
+        run: shellcheck bin/* tests/*.sh
+
+      - name: Validate configuration and repository safety
+        run: ./tests/validate.sh
+
+      - name: Run Gitleaks
+        run: |
+          curl -fsSLO https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  gitleaks_8.30.1_linux_x64.tar.gz" | sha256sum -c -
+          tar -xzf gitleaks_8.30.1_linux_x64.tar.gz -C /tmp gitleaks
+          /tmp/gitleaks dir . --no-banner --redact --exit-code 1

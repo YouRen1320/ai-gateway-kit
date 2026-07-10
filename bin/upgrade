@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+# shellcheck source=bin/lib.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
+
+new_image=""
+while (($#)); do
+  case "$1" in
+    --sub2api-image) new_image="${2:?Missing image reference}"; shift 2 ;;
+    -h|--help)
+      echo "Usage: ./bin/upgrade --sub2api-image IMAGE@sha256:DIGEST"
+      exit 0
+      ;;
+    *) die "Unknown option: $1" ;;
+  esac
+done
+
+[[ "$new_image" =~ @sha256:[0-9a-f]{64}$ ]] || die "Image must be pinned as IMAGE@sha256:DIGEST"
+require_command docker
+require_env_file
+docker info >/dev/null 2>&1 || die "Docker daemon is not reachable"
+
+old_image="$(env_value SUB2API_IMAGE)"
+[[ "$new_image" != "$old_image" ]] || die "The requested image is already configured"
+
+mkdir -p "$ROOT_DIR/.state"
+state_file="$ROOT_DIR/.state/previous-images.env"
+printf 'SUB2API_IMAGE=%s\n' "$old_image" > "$state_file"
+chmod 600 "$state_file"
+
+info "Creating pre-upgrade backup"
+"$ROOT_DIR/bin/backup"
+replace_env_value SUB2API_IMAGE "$new_image"
+
+image_ready=false
+if compose_pull_with_retry sub2api; then
+  image_ready=true
+elif docker image inspect "$new_image" >/dev/null 2>&1; then
+  # A registry outage must not invalidate an already verified immutable artifact.
+  warn "Registry pull failed; using the locally cached image with the requested digest"
+  image_ready=true
+fi
+
+if $image_ready && compose up -d sub2api --pull never && wait_for_http_health 180; then
+  ok "Upgrade completed: $new_image"
+else
+  warn "Upgrade failed; restoring the previous image reference"
+  replace_env_value SUB2API_IMAGE "$old_image"
+  compose_pull_with_retry sub2api || true
+  compose up -d sub2api --pull never || true
+  wait_for_http_health 180 || true
+  die "Upgrade failed and image rollback was attempted. Database changes were not rolled back."
+fi

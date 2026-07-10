@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+# shellcheck source=bin/lib.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
+
+state_file="$ROOT_DIR/.state/previous-images.env"
+[[ -f "$state_file" ]] || die "No previous image state found"
+previous_image="$(env_value_from "$state_file" SUB2API_IMAGE)"
+[[ "$previous_image" =~ @sha256:[0-9a-f]{64}$ ]] || die "Previous image state is invalid"
+
+require_command docker
+docker info >/dev/null 2>&1 || die "Docker daemon is not reachable"
+replace_env_value SUB2API_IMAGE "$previous_image"
+compose_pull_with_retry sub2api
+compose up -d sub2api --pull never
+wait_for_http_health 180
+ok "Rolled back the Sub2API image to: $previous_image"
+warn "Only the image was rolled back. Restore a compatible backup if the upgrade changed the database schema."

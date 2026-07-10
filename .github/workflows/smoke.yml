@@ -1,0 +1,20 @@
+name: Runtime smoke test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Run isolated runtime, backup, and restore test
+        env:
+          AI_GATEWAY_SMOKE: "1"
+        run: ./tests/smoke.sh

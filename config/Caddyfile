@@ -1,0 +1,25 @@
+{
+	email {$ACME_EMAIL}
+	admin off
+}
+
+{$GATEWAY_DOMAIN} {
+	encode zstd gzip
+
+	request_body {
+		max_size {$MAX_REQUEST_BODY_SIZE}
+	}
+
+	header {
+		-Server
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+	}
+
+	reverse_proxy sub2api:8080 {
+		flush_interval -1
+		header_up X-Real-IP {remote_host}
+	}
+}

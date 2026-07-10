@@ -1,0 +1,150 @@
+name: ${COMPOSE_PROJECT_NAME:-ai-gateway}
+
+services:
+  sub2api:
+    image: ${SUB2API_IMAGE:?Run ./bin/setup before starting the stack}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "${BIND_HOST:-127.0.0.1}:${SERVER_PORT:-8080}:8080"
+    volumes:
+      - type: bind
+        source: ./runtime/app
+        target: /app/data
+    environment:
+      AUTO_SETUP: "true"
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: "8080"
+      SERVER_MODE: ${SERVER_MODE:-release}
+      RUN_MODE: ${RUN_MODE:-standard}
+      SIMPLE_MODE_CONFIRM: ${SIMPLE_MODE_CONFIRM:-false}
+      TZ: ${TZ:-UTC}
+
+      DATABASE_HOST: postgres
+      DATABASE_PORT: "5432"
+      DATABASE_USER: ${POSTGRES_USER:-sub2api}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?Run ./bin/setup before starting the stack}
+      DATABASE_DBNAME: ${POSTGRES_DB:-sub2api}
+      DATABASE_SSLMODE: disable
+      DATABASE_MAX_OPEN_CONNS: ${DATABASE_MAX_OPEN_CONNS:-50}
+      DATABASE_MAX_IDLE_CONNS: ${DATABASE_MAX_IDLE_CONNS:-10}
+      DATABASE_CONN_MAX_LIFETIME_MINUTES: ${DATABASE_CONN_MAX_LIFETIME_MINUTES:-30}
+      DATABASE_CONN_MAX_IDLE_TIME_MINUTES: ${DATABASE_CONN_MAX_IDLE_TIME_MINUTES:-5}
+
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Run ./bin/setup before starting the stack}
+      REDIS_DB: ${REDIS_DB:-0}
+      REDIS_POOL_SIZE: ${REDIS_POOL_SIZE:-256}
+      REDIS_MIN_IDLE_CONNS: ${REDIS_MIN_IDLE_CONNS:-10}
+      REDIS_ENABLE_TLS: "false"
+
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Run ./bin/setup before starting the stack}
+      JWT_SECRET: ${JWT_SECRET:?Run ./bin/setup before starting the stack}
+      JWT_EXPIRE_HOUR: ${JWT_EXPIRE_HOUR:-24}
+      TOTP_ENCRYPTION_KEY: ${TOTP_ENCRYPTION_KEY:?Run ./bin/setup before starting the stack}
+      SETUP_MIGRATION_TIMEOUT_SECONDS: ${SETUP_MIGRATION_TIMEOUT_SECONDS:-300}
+
+      SERVER_MAX_REQUEST_BODY_SIZE: ${SERVER_MAX_REQUEST_BODY_SIZE:-268435456}
+      GATEWAY_MAX_BODY_SIZE: ${GATEWAY_MAX_BODY_SIZE:-268435456}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      LOG_OUTPUT_TO_STDOUT: ${LOG_OUTPUT_TO_STDOUT:-true}
+      LOG_OUTPUT_TO_FILE: ${LOG_OUTPUT_TO_FILE:-true}
+      LOG_ROTATION_MAX_SIZE_MB: ${LOG_ROTATION_MAX_SIZE_MB:-100}
+      LOG_ROTATION_MAX_BACKUPS: ${LOG_ROTATION_MAX_BACKUPS:-10}
+      LOG_ROTATION_MAX_AGE_DAYS: ${LOG_ROTATION_MAX_AGE_DAYS:-7}
+
+      SECURITY_URL_ALLOWLIST_ENABLED: ${SECURITY_URL_ALLOWLIST_ENABLED:-true}
+      SECURITY_URL_ALLOWLIST_ALLOW_INSECURE_HTTP: ${SECURITY_URL_ALLOWLIST_ALLOW_INSECURE_HTTP:-false}
+      SECURITY_URL_ALLOWLIST_ALLOW_PRIVATE_HOSTS: ${SECURITY_URL_ALLOWLIST_ALLOW_PRIVATE_HOSTS:-false}
+      SECURITY_URL_ALLOWLIST_UPSTREAM_HOSTS: ${SECURITY_URL_ALLOWLIST_UPSTREAM_HOSTS:-}
+      SECURITY_URL_ALLOWLIST_PRICING_HOSTS: ${SECURITY_URL_ALLOWLIST_PRICING_HOSTS:-raw.githubusercontent.com}
+      SECURITY_URL_ALLOWLIST_CRS_HOSTS: ${SECURITY_URL_ALLOWLIST_CRS_HOSTS:-}
+
+      GEMINI_OAUTH_CLIENT_ID: ${GEMINI_OAUTH_CLIENT_ID:-}
+      GEMINI_OAUTH_CLIENT_SECRET: ${GEMINI_OAUTH_CLIENT_SECRET:-}
+      GEMINI_OAUTH_SCOPES: ${GEMINI_OAUTH_SCOPES:-}
+      UPDATE_PROXY_URL: ${UPDATE_PROXY_URL:-}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-T", "5", "-O", "/dev/null", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 45s
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "5"
+    networks:
+      - frontend
+      - backend
+
+  postgres:
+    image: ${POSTGRES_IMAGE:?Run ./bin/setup before starting the stack}
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: ./runtime/postgres
+        target: /var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-sub2api}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run ./bin/setup before starting the stack}
+      POSTGRES_DB: ${POSTGRES_DB:-sub2api}
+      PGDATA: /var/lib/postgresql/data
+      TZ: ${TZ:-UTC}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "5"
+    networks:
+      - backend
+
+  redis:
+    image: ${REDIS_IMAGE:?Run ./bin/setup before starting the stack}
+    restart: unless-stopped
+    command:
+      - sh
+      - -ec
+      - >-
+        exec redis-server --save 60 1 --appendonly yes --appendfsync everysec
+        --requirepass "$${REDIS_PASSWORD}"
+    volumes:
+      - type: bind
+        source: ./runtime/redis
+        target: /data
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Run ./bin/setup before starting the stack}
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?Run ./bin/setup before starting the stack}
+      TZ: ${TZ:-UTC}
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "5"
+    networks:
+      - backend
+
+networks:
+  frontend:
+  backend:
+    internal: true
