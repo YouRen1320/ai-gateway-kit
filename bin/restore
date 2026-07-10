@@ -133,7 +133,7 @@ for dir in app redis; do
   [[ -d "$ROOT_DIR/runtime/$dir" ]] && mv "$ROOT_DIR/runtime/$dir" "$snapshot/$dir"
 done
 mkdir -p "$ROOT_DIR/runtime/app" "$ROOT_DIR/runtime/redis"
-[[ -f "$work/runtime-files.tar.gz" ]] && tar -xzf "$work/runtime-files.tar.gz" -C "$ROOT_DIR"
+[[ -f "$work/runtime-files.tar.gz" ]] && restore_runtime_files "$work/runtime-files.tar.gz"
 
 info "Replacing PostgreSQL database"
 compose exec -T postgres psql -v ON_ERROR_STOP=1 -U "$db_user" -d postgres \

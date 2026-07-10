@@ -41,10 +41,8 @@ info "Forcing Redis to persist its current state"
 compose exec -T redis redis-cli SAVE >/dev/null
 
 info "Archiving application and Redis runtime files"
-tar -C "$ROOT_DIR" \
-  --exclude='runtime/app/logs' \
-  -czf "$work/runtime-files.tar.gz" \
-  runtime/app runtime/redis
+archive_runtime_files "$work/runtime-files.tar.gz"
+validate_tar_safety "$work/runtime-files.tar.gz" || die "Runtime state contains unsafe paths or links"
 
 {
   printf 'created_utc=%s\n' "$stamp"

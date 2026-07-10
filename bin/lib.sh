@@ -128,6 +128,41 @@ validate_tar_safety() {
   fi
 }
 
+archive_runtime_files() {
+  local destination="$1" helper_image
+  helper_image="$(env_value REDIS_IMAGE)"
+
+  # Container-created state can be unreadable to an unprivileged Linux host user.
+  # Reuse the already pinned Redis image as a network-isolated filesystem helper.
+  docker run --rm \
+    --network none \
+    --user 0:0 \
+    --entrypoint tar \
+    --volume "$ROOT_DIR/runtime/app:/snapshot/runtime/app:ro" \
+    --volume "$ROOT_DIR/runtime/redis:/snapshot/runtime/redis:ro" \
+    "$helper_image" \
+    -C /snapshot \
+    --exclude=runtime/app/logs \
+    -czf - \
+    runtime/app runtime/redis > "$destination"
+}
+
+restore_runtime_files() {
+  local archive="$1" helper_image
+  helper_image="$(env_value REDIS_IMAGE)"
+
+  docker run --rm \
+    --network none \
+    --user 0:0 \
+    --interactive \
+    --entrypoint tar \
+    --volume "$ROOT_DIR/runtime/app:/restore/runtime/app" \
+    --volume "$ROOT_DIR/runtime/redis:/restore/runtime/redis" \
+    "$helper_image" \
+    -C /restore \
+    -xzf - < "$archive"
+}
+
 wait_for_http_health() {
   local timeout="${1:-180}" host port url started
   host="$(env_value BIND_HOST)"

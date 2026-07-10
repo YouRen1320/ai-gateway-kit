@@ -30,6 +30,7 @@ The following passed against a clean temporary copy:
 - Sub2API HTTP health endpoint.
 - Caddy local HTTPS health endpoint.
 - Backup payload checksums.
+- Backup and restore of container-owned runtime files from an unprivileged Linux host account.
 - Destructive database/runtime restore followed by health verification.
 - Refusal to import infrastructure secrets into a non-empty destination.
 - Application image upgrade and rollback followed by health verification.

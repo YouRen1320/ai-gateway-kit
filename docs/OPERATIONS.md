@@ -55,6 +55,8 @@ The default backup includes:
 - Image and project metadata.
 - SHA-256 checksums for every payload.
 
+Application and Redis files may be owned by container UIDs that the host operator cannot read directly. The backup and restore commands therefore reuse the digest-pinned Redis image as a root filesystem helper with networking disabled; no additional mutable helper image is introduced.
+
 ```bash
 ./bin/backup
 ```
