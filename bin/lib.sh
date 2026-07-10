@@ -163,6 +163,27 @@ restore_runtime_files() {
     -xzf - < "$archive"
 }
 
+snapshot_runtime_files() {
+  local snapshot="$1" helper_image
+  helper_image="$(env_value REDIS_IMAGE)"
+
+  docker run --rm \
+    --network none \
+    --user 0:0 \
+    --entrypoint sh \
+    --volume "$ROOT_DIR/runtime:/runtime" \
+    --volume "$snapshot:/snapshot" \
+    "$helper_image" \
+    -ec '
+      for directory in app redis; do
+        if [ -d "/runtime/$directory" ]; then
+          mv "/runtime/$directory" /snapshot/
+        fi
+      done
+      mkdir -p /runtime/app /runtime/redis
+    '
+}
+
 wait_for_http_health() {
   local timeout="${1:-180}" host port url started
   host="$(env_value BIND_HOST)"
