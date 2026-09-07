@@ -21,6 +21,13 @@
 
 本项目与 OpenAI、Anthropic、Google、Sub2API、Caddy 等第三方无隶属或官方合作关系。
 
+## 相关项目
+
+- [Transfer-Station](https://github.com/YouRen1320/Transfer-Station)：面向个人实验环境的 Sub2API 部署整合实例。
+- [open-gateway-starter](https://github.com/YouRen1320/open-gateway-starter)：面向网关产品介绍与演示的前端起步项目。
+
+三个仓库职责独立，本项目不依赖另外两个仓库的源码。生产部署优先使用本仓库的安全默认值、诊断、备份与回滚流程。
+
 ## 环境要求
 
 - 64 位 Linux；推荐 Debian 12 或 Ubuntu 24.04。
