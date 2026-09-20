@@ -14,13 +14,13 @@ The upstream README also contains a no-commercial-authorization statement. Opera
 ## PostgreSQL
 
 - Source: <https://www.postgresql.org/>
-- Reviewed image: `postgres:18.4-alpine3.24`
+- Reviewed image: `postgres:18.6-alpine3.24`
 - License: PostgreSQL License
 
 ## Redis Open Source
 
 - Source: <https://github.com/redis/redis>
-- Reviewed image: `redis:8.8.0-alpine3.23`
+- Reviewed image: `redis:8.8.2-alpine3.23`
 - License options for Redis 8+: RSALv2, SSPLv1, or AGPLv3, at the user's option
 - License overview: <https://redis.io/legal/licenses/>
 
