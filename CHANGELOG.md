@@ -4,6 +4,10 @@ All notable changes are documented here. The project follows semantic versioning
 
 ## [Unreleased]
 
+### Changed
+
+- 模板固定镜像升级为 Sub2API 0.2.9（多平台摘要 `sha256:1f4a15d2…`），依据 2026-09-28 的同日扫描（High 45→4）、77 个新增 SQL 迁移审阅与隔离栈升级/回滚演练；演练证据与回滚顺序要点见升级说明。
+
 ## [0.1.0] - 2026-07-10
 
 ### Added
