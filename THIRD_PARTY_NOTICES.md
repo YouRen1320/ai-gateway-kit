@@ -5,8 +5,8 @@ AI Gateway Kit does not vendor the following applications. Docker pulls them dir
 ## Sub2API
 
 - Source: <https://github.com/Wei-Shaw/sub2api>
-- Reviewed image: `weishaw/sub2api:0.1.151`
-- Reviewed source revision: `deff3123ded1d14e51df1fd1286e3d43ed9ec9bd`
+- Reviewed image: `weishaw/sub2api:0.2.9`
+- Reviewed source revision: `4c00df2e0183e2c70b7fa8ba45914205e36aad0c`
 - License file at that revision: GNU Lesser General Public License v3.0
 
 The upstream README also contains a no-commercial-authorization statement. Operators should clarify the resulting commercial-use boundary with upstream before relying on commercial deployment.
