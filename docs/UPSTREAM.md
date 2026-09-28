@@ -4,14 +4,14 @@
 
 | Component | Version/tag | Multi-platform digest | Source revision |
 |---|---|---|---|
-| Sub2API | `0.1.151` | `sha256:2ca591c2af97eb0e2797cfc7fb7bd587194d94cebdac76f73d677eeab1d4d6c8` | `deff3123ded1d14e51df1fd1286e3d43ed9ec9bd` |
+| Sub2API | `0.2.9` | `sha256:1f4a15d278fdedfa80188a0de538b81222bcc9a6bbe93bf91522c864737a90e3` | `4c00df2e0183e2c70b7fa8ba45914205e36aad0c` |
 | PostgreSQL | `18.6-alpine3.24` | `sha256:6c538e7206ea40ff740ef27883529390a690b6ead6ba96b44c67a9f7c638e8fd` | 官方多架构镜像 |
 | Redis | `8.8.2-alpine3.23` | `sha256:e2c307e77bcaf306fa9e468bda845165a46c4c015ffd238fb3c92ae5d71d486f` | 官方多架构镜像 |
 | Caddy | `2.11.4-alpine` | `sha256:de23def33b17fb5d1290b0f6c2add1d70780e52341896c00a4c8a2a2fe9d355e` | 官方同版本重建镜像 |
 
 The human-readable tags identify exact patch and Alpine releases. The multi-platform digest remains authoritative and prevents a tag from changing the artifact selected by Compose.
 
-2026-09-20 已通过 Docker Hub 标签元数据核对上述三项多架构摘要，均包含 Linux/amd64 与 Linux/arm64。扫描结果及仍未解决的问题见[安全基线](SECURITY_BASELINE.md)，升级与回滚注意事项见[升级说明](UPGRADING.md)。
+2026-09-20 已通过 Docker Hub 标签元数据核对上述三项多架构摘要，均包含 Linux/amd64 与 Linux/arm64；2026-09-28 同法核对 Sub2API 0.2.9 摘要（linux/amd64 扫描与迁移演练见升级说明）。扫描结果及仍未解决的问题见[安全基线](SECURITY_BASELINE.md)，升级与回滚注意事项见[升级说明](UPGRADING.md)。
 
 Before updating:
 
